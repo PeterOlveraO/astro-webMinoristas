@@ -1,19 +1,24 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
-import { supabase } from '../../db/supabase';
 
 const clienteId = Astro.cookies.get('id_cliente')?.value;
 
-// Fetch all solicitudes for this client
-const { data: solicitudes } = await supabase
-  .from('solicitudes_cotizacion')
-  .select('*')
-  .eq('id_cliente', clienteId)
-  .order('created_at', { ascending: false });
+let allSolicitudes: any[] = [];
+try {
+  // Le pedimos a C# los pedidos, filtrando directamente por el cliente
+  const res = await fetch(`http://localhost:5145/api/pedidos-raw?id_cliente=${clienteId}`);
+  if (res.ok) {
+    const json = await res.json();
+    if (json.success) {
+      // Los ordenamos para que los más nuevos salgan arriba
+      allSolicitudes = json.data.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+  }
+} catch (e) {
+  console.error("Error conectando a C# para la lista:", e);
+}
 
-const allSolicitudes = solicitudes || [];
-
-// Group by estado
+// Agrupamos por estado
 const estados = ['pendiente', 'en proceso', 'cotizada', 'respondida', 'completada'];
 const estadoLabels: Record<string, string> = {
   'pendiente': 'Pendientes',
@@ -52,7 +57,7 @@ const estadoIcons: Record<string, string> = {
       <span class="bg-primary/20 text-primary px-2 py-0.5 rounded-full text-xs font-bold">{allSolicitudes.length}</span>
     </button>
     {estados.map(estado => {
-      const count = allSolicitudes.filter(s => s.estado_solicitud === estado).length;
+const count = allSolicitudes.filter((s: any) => s.estado_solicitud === estado).length;
       return (
         <button data-filter={estado} class={`filter-btn flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap cursor-pointer text-text-secondary border border-outline hover:bg-surface-3`}>
           <span class="material-symbols-rounded text-[18px]">{estadoIcons[estado]}</span>
@@ -76,49 +81,51 @@ const estadoIcons: Record<string, string> = {
     </div>
   ) : (
     <div class="space-y-4" id="solicitudes-list">
-      {allSolicitudes.map((sol, index) => {
-        const specs = sol.especificaciones_req || {};
+      {allSolicitudes.map((sol: any, index: number) => {
+        // ACTUALIZADO: Usamos especificaciones_tecnicas y estado
+        const specs = sol.especificaciones_tecnicas || {};
         const specKeys = Object.keys(specs);
-        const estadoClass = sol.estado_solicitud?.replace(' ', '-');
-        const isActionable = sol.estado_solicitud === 'respondida';
+        const estadoClass = sol.estado?.replace(' ', '-');
+        const isActionable = sol.estado === 'respondida';
 
         return (
           <a
-            href={`/cotizaciones/${sol.id_solicitud}`}
+           
+            href={`/cotizaciones/${sol.id_pedido}`}
             class={`solicitud-card glass-card glass-card-hover p-5 sm:p-6 flex flex-col sm:flex-row items-start gap-4 animate-fade-in-up ${isActionable ? 'border-success/30' : ''}`}
-            data-estado={sol.estado_solicitud}
+            data-estado={sol.estado}
             style={`animation-delay: ${Math.min(index * 0.05, 0.5)}s`}
           >
-            <!-- Icon -->
             <div class={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-              sol.estado_solicitud === 'pendiente' ? 'bg-warning/15' :
-              sol.estado_solicitud === 'en proceso' ? 'bg-info/15' :
-              sol.estado_solicitud === 'cotizada' ? 'bg-primary/15' :
-              sol.estado_solicitud === 'respondida' ? 'bg-success/15' :
+              sol.estado === 'pendiente' ? 'bg-warning/15' :
+              sol.estado === 'en proceso' ? 'bg-info/15' :
+              sol.estado === 'cotizada' ? 'bg-primary/15' :
+              sol.estado === 'respondida' ? 'bg-success/15' :
               'bg-success/20'
             }`}>
               <span class={`material-symbols-rounded text-xl ${
-                sol.estado_solicitud === 'pendiente' ? 'text-warning' :
-                sol.estado_solicitud === 'en proceso' ? 'text-info' :
-                sol.estado_solicitud === 'cotizada' ? 'text-primary' :
-                sol.estado_solicitud === 'respondida' ? 'text-success' :
+                sol.estado === 'pendiente' ? 'text-warning' :
+                sol.estado === 'en proceso' ? 'text-info' :
+                sol.estado === 'cotizada' ? 'text-primary' :
+                sol.estado === 'respondida' ? 'text-success' :
                 'text-success'
-              }`}>{estadoIcons[sol.estado_solicitud] || 'description'}</span>
+              }`}>{estadoIcons[sol.estado] || 'description'}</span>
             </div>
 
-            <!-- Content -->
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
-                  <h3 class="text-base font-bold text-text-primary truncate">{sol.descripcion_articulo}</h3>
+                  <h3 class="text-base font-bold text-text-primary truncate">{sol.contenido_raw || 'Sin descripción'}</h3>
                   <div class="flex flex-wrap items-center gap-2 mt-2">
                     <span class={`badge badge-${estadoClass}`}>
-                      {sol.estado_solicitud}
+                      {sol.estado}
                     </span>
-                    <span class={`badge badge-${sol.nivel_urgencia}`}>
-                      <span class="material-symbols-rounded text-[12px]">flag</span>
-                      {sol.nivel_urgencia}
-                    </span>
+                    {sol.urgencia && (
+                      <span class={`badge badge-${sol.urgencia}`}>
+                        <span class="material-symbols-rounded text-[12px]">flag</span>
+                        {sol.urgencia}
+                      </span>
+                    )}
                     <span class="text-xs text-text-muted">
                       {new Date(sol.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </span>

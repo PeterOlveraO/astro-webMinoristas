@@ -54,37 +54,28 @@ import DashboardLayout from '../../layouts/DashboardLayout.astro';
 
         <!-- Urgencia -->
         <div class="mb-6">
-          <label class="input-label flex items-center gap-2">
-            <span class="material-symbols-rounded text-[18px] text-primary">flag</span>
-            Nivel de urgencia
-          </label>
-          <div class="grid grid-cols-3 gap-3">
-            <label class="cursor-pointer">
-              <input type="radio" name="urgencia" value="baja" class="peer hidden" />
-              <div class="p-4 rounded-xl border border-outline text-center transition-all peer-checked:border-success peer-checked:bg-success/10 hover:border-outline-light">
-                <span class="material-symbols-rounded text-success text-2xl mb-1 block">check_circle</span>
-                <p class="text-sm font-semibold text-text-primary">Baja</p>
-                <p class="text-xs text-text-muted">+2 semanas</p>
-              </div>
-            </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="urgencia" value="media" class="peer hidden" checked />
-              <div class="p-4 rounded-xl border border-outline text-center transition-all peer-checked:border-warning peer-checked:bg-warning/10 hover:border-outline-light">
-                <span class="material-symbols-rounded text-warning text-2xl mb-1 block">schedule</span>
-                <p class="text-sm font-semibold text-text-primary">Media</p>
-                <p class="text-xs text-text-muted">1-2 semanas</p>
-              </div>
-            </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="urgencia" value="alta" class="peer hidden" />
-              <div class="p-4 rounded-xl border border-outline text-center transition-all peer-checked:border-danger peer-checked:bg-danger/10 hover:border-outline-light">
-                <span class="material-symbols-rounded text-danger text-2xl mb-1 block">priority_high</span>
-                <p class="text-sm font-semibold text-text-primary">Alta</p>
-                <p class="text-xs text-text-muted">&lt; 1 semana</p>
-              </div>
-            </label>
-          </div>
-        </div>
+  <label class="input-label flex items-center gap-2">
+    <span class="material-symbols-rounded text-[18px] text-primary">flag</span>
+    Nivel de urgencia
+  </label>
+  <div class="grid grid-cols-2 gap-3"> <label class="cursor-pointer">
+      <input type="radio" name="urgencia" value="media" class="peer hidden" checked />
+      <div class="p-4 rounded-xl border border-outline text-center transition-all peer-checked:border-warning peer-checked:bg-warning/10 hover:border-outline-light">
+        <span class="material-symbols-rounded text-warning text-2xl mb-1 block">schedule</span>
+        <p class="text-sm font-semibold text-text-primary">Media</p>
+        <p class="text-xs text-text-muted">1-2 semanas</p>
+      </div>
+    </label>
+    <label class="cursor-pointer">
+      <input type="radio" name="urgencia" value="urgente" class="peer hidden" />
+      <div class="p-4 rounded-xl border border-outline text-center transition-all peer-checked:border-danger peer-checked:bg-danger/10 hover:border-outline-light">
+        <span class="material-symbols-rounded text-danger text-2xl mb-1 block">priority_high</span>
+        <p class="text-sm font-semibold text-text-primary">Alta</p>
+        <p class="text-xs text-text-muted">&lt; 1 semana</p>
+      </div>
+    </label>
+  </div>
+</div>
 
         <!-- Submit -->
         <button type="submit" id="submit-btn" class="btn-primary w-full sm:w-auto cursor-pointer">
@@ -203,29 +194,57 @@ import DashboardLayout from '../../layouts/DashboardLayout.astro';
   });
 
   // ─── Form submit ──────────────────────────────────
+  
+  // Función auxiliar para leer la cookie en el navegador (Versión TypeScript)
+  function getCookie(name: string): string | null {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) {
+      return parts.pop()?.split(';').shift() || null;
+    }
+    return null;
+  }
+
   document.getElementById('solicitud-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const descripcion = (document.getElementById('descripcion') as HTMLTextAreaElement)?.value;
-    const urgencia = (document.querySelector('input[name="urgencia"]:checked') as HTMLInputElement)?.value || 'media';
+    const opcionesUrgencia = document.getElementsByName('urgencia') as NodeListOf<HTMLInputElement>;
+    let urgenciaSeleccionada = 'urgente'; // Valor por defecto seguro
+    opcionesUrgencia.forEach(radio => {
+      if (radio.checked) {
+        urgenciaSeleccionada = radio.value;
+      }
+    });
     const errorDiv = document.getElementById('form-error')!;
     const submitText = document.getElementById('submit-text')!;
     const submitSpinner = document.getElementById('submit-spinner')!;
     const submitIcon = document.getElementById('submit-icon')!;
+    const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
 
     // Collect specs
-    const specs: Record<string, string> = {};
-    const specRows = specsContainer.querySelectorAll('div');
+const specs: Record<string, string> = {};
+const specRows = Array.from(specsContainer.children);
     specRows.forEach(row => {
       const keyInput = row.querySelector('[data-spec="key"]') as HTMLInputElement;
       const valueInput = row.querySelector('[data-spec="value"]') as HTMLInputElement;
-      if (keyInput?.value?.trim() && valueInput?.value?.trim()) {
+      if (keyInput && valueInput && keyInput.value.trim() !== '' && valueInput.value.trim() !== '') {
         specs[keyInput.value.trim()] = valueInput.value.trim();
       }
     });
+    console.log("🔍 Specs capturadas en frontend:", specs); // <-- Útil para depurar
+    const especificacionesParaEnviar = Object.keys(specs).length > 0 ? specs : null;
 
     if (!descripcion?.trim()) {
       errorDiv.textContent = 'La descripción es requerida';
+      errorDiv.classList.remove('hidden');
+      return;
+    }
+
+    // Leemos el ID del cliente de la cookie activa
+    const clienteId = getCookie('id_cliente');
+    if (!clienteId) {
+      errorDiv.textContent = 'Error: Sesión no válida. Por favor, inicia sesión de nuevo.';
       errorDiv.classList.remove('hidden');
       return;
     }
@@ -234,37 +253,48 @@ import DashboardLayout from '../../layouts/DashboardLayout.astro';
     submitText.textContent = 'Enviando...';
     submitSpinner.classList.remove('hidden');
     submitIcon.classList.add('hidden');
+    if (submitBtn) submitBtn.disabled = true;
 
     try {
-      const res = await fetch('/api/solicitudes', {
+      // 1. Apuntamos a la nueva ruta correcta
+      const res = await fetch('http://localhost:5145/api/pedidos-raw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          descripcion_articulo: descripcion,
-          especificaciones_req: Object.keys(specs).length > 0 ? specs : {},
-          nivel_urgencia: urgencia,
+          id_cliente: clienteId,
+          // 2. Usamos los nombres exactos de las columnas que me mencionaste
+          contenido_raw: descripcion, 
+          urgencia: urgenciaSeleccionada, 
+          // 3. Enviamos el JSON de las especificaciones
+          especificaciones_tecnicas: especificacionesParaEnviar, // Usamos la variable limpia
         })
       });
-
+      
       const data = await res.json();
 
-      if (!res.ok) {
-        errorDiv.textContent = data.error || 'Error al crear la solicitud';
+      if (!res.ok || !data.success) {
+        errorDiv.textContent = data.message || data.error || 'Error al crear la solicitud';
         errorDiv.classList.remove('hidden');
         submitText.textContent = 'Enviar Solicitud';
         submitSpinner.classList.add('hidden');
         submitIcon.classList.remove('hidden');
+        if (submitBtn) submitBtn.disabled = false;
         return;
       }
 
-      // Show success modal
+      // ¡Éxito! Mostramos tu modal de éxito
       document.getElementById('success-modal')?.classList.remove('hidden');
+      
+      // Opcional: Limpiamos el formulario para que no quede la información vieja si deciden no irse
+      (document.getElementById('solicitud-form') as HTMLFormElement).reset();
+      
     } catch (err) {
-      errorDiv.textContent = 'Error de conexión. Intenta de nuevo.';
+      errorDiv.textContent = 'Error de conexión. Verifica que el servidor esté encendido.';
       errorDiv.classList.remove('hidden');
       submitText.textContent = 'Enviar Solicitud';
       submitSpinner.classList.add('hidden');
       submitIcon.classList.remove('hidden');
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 </script>

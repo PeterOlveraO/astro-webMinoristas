@@ -1,16 +1,25 @@
 ---
+// src/layouts/DashboardLayout.astro
 import '../styles/global.css';
 
 interface Props {
   title: string;
   description?: string;
   activeNav?: string;
+  nombreEmpresa?: string; // Nueva propiedad opcional
 }
 
-const { title, description = "DownLabs — Portal de Clientes", activeNav = '' } = Astro.props;
+const { 
+  title, 
+  description = "DownLabs — Portal de Clientes", 
+  activeNav = '',
+  nombreEmpresa // Recibimos el nombre desde la página
+} = Astro.props;
 
 const clienteId = Astro.cookies.get('id_cliente')?.value;
-const clienteNombre = Astro.cookies.get('nombre_empresa')?.value || 'Mi empresa';
+
+// Prioridad: 1. El nombre que viene del C# (prop), 2. La cookie, 3. 'Mi empresa'
+const clienteNombre = nombreEmpresa || Astro.cookies.get('nombre_empresa')?.value || 'Mi empresa';
 ---
 
 <!doctype html>
@@ -71,11 +80,11 @@ const clienteNombre = Astro.cookies.get('nombre_empresa')?.value || 'Mi empresa'
 
           <!-- Right side -->
           <div class="flex items-center gap-3">
-            <!-- Notifications -->
+            <!-- Notifications 
             <a href="/notificaciones" class="relative p-2 rounded-xl text-text-secondary hover:text-text-primary hover:bg-surface-3 transition-all" id="btn-notificaciones">
               <span class="material-symbols-rounded text-[22px]">notifications</span>
               <span id="notifications-badge" class="hidden absolute top-1 right-1 w-2.5 h-2.5 bg-danger rounded-full border-2 border-surface-1"></span>
-            </a>
+            </a>-->
 
             <!-- User dropdown (desktop) -->
             <div class="hidden md:flex items-center gap-3 pl-3 border-l border-outline">
@@ -168,7 +177,9 @@ const clienteNombre = Astro.cookies.get('nombre_empresa')?.value || 'Mi empresa'
       };
 
       // Check notifications
+      // Check notifications (Silenciado temporalmente hasta conectarlo a C#)
       async function checkNotifications() {
+        /*
         try {
           const res = await fetch('/api/notificaciones');
           if (res.ok) {
@@ -180,9 +191,10 @@ const clienteNombre = Astro.cookies.get('nombre_empresa')?.value || 'Mi empresa'
             }
           }
         } catch {}
+        */
       }
-      checkNotifications();
-      setInterval(checkNotifications, 30000);
+      // checkNotifications();
+      // setInterval(checkNotifications, 30000);
     </script>
   </body>
 </html>

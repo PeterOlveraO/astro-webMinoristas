@@ -1,39 +1,24 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
-import { supabase } from '../../db/supabase';
 
 const clienteId = Astro.cookies.get('id_cliente')?.value;
 
-// Fetch pedidos with related data
-// We need to join pedidos_creditos → cotizaciones_downlabs → solicitudes_cotizacion (to verify client)
-// and also → catalogo_productos (for product info)
-const { data: pedidos } = await supabase
-  .from('pedidos_creditos')
-  .select(`
-    *,
-    cotizaciones_downlabs!inner (
-      id_cotizacion,
-      id_solicitud,
-      precio_final_cliente,
-      cantidad,
-      costo_envio,
-      catalogo_productos (
-        id_producto,
-        nombre_articulo,
-        categoria,
-        imagen_url,
-        descripcion
-      ),
-      solicitudes_cotizacion!inner (
-        id_cliente,
-        descripcion_articulo
-      )
-    )
-  `)
-  .eq('cotizaciones_downlabs.solicitudes_cotizacion.id_cliente', clienteId)
-  .order('created_at', { ascending: false });
-
-const allPedidos = pedidos || [];
+// 1. Fetch de los pedidos desde tu API en C#
+let allPedidos: any[] = [];
+try {
+  const res = await fetch(`http://localhost:5145/api/pedidos-credito`);
+  if (res.ok) {
+    const json = await res.json();
+    if (json.success) {
+      // Filtramos por tu ID de cliente y ordenamos los más recientes primero
+      allPedidos = json.data
+        .filter((p: any) => p.id_cliente === clienteId)
+        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+  }
+} catch (e) {
+  console.error("Error conectando a C# para pedidos:", e);
+}
 
 const estadoColors: Record<string, string> = {
   'pendiente': 'warning',
@@ -50,13 +35,14 @@ const estadoIcons: Record<string, string> = {
   'moroso': 'warning',
 };
 
-// Summary
+// Summary - Cálculos matemáticos
 const montoTotalOriginal = allPedidos.reduce((s, p) => s + (Number(p.monto_original) || 0), 0);
 const montoTotalConInteres = allPedidos.reduce((s, p) => {
   const monto = Number(p.monto_original) || 0;
   const interes = Number(p.interes) || 0;
   return s + (monto * (1 + interes / 100));
 }, 0);
+
 const activos = allPedidos.filter(p => ['pendiente', 'aprobado', 'en curso'].includes(p.estado_credito));
 const completados = allPedidos.filter(p => p.estado_credito === 'completado');
 ---

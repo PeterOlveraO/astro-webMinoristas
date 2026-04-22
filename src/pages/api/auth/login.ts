@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
-import { supabase } from '../../../db/supabase';
+// Importamos nuestro puente hacia C#
+import { ApiService } from '../../../services/api';
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   try {
@@ -13,22 +14,18 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       });
     }
 
-    // Simple login: query clientes table by correo_contacto
-    const { data: cliente, error } = await supabase
-      .from('clientes')
-      .select('*')
-      .eq('correo_contacto', correo)
-      .single();
+    // 1. Pedimos los clientes a nuestro backend en C#
+    const clientes = await ApiService.getClientes();
+    
+    // 2. Buscamos si existe el correo
+    const cliente = clientes.find((c: any) => c.correo_contacto === correo);
 
-    if (error || !cliente) {
+    if (!cliente) {
       return new Response(JSON.stringify({ error: 'Credenciales inválidas. Verifica tu correo.' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-
-    // For simple auth without password_hash, just check the client exists
-    // In production, you'd verify password_hash here
 
     // Set session cookies
     cookies.set('id_cliente', cliente.id_cliente, {

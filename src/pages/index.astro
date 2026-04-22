@@ -248,9 +248,9 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
         </div>
 
         <button type="submit" id="login-submit" class="btn-primary w-full mt-2 cursor-pointer">
-          <span id="login-btn-text">Iniciar Sesión</span>
-          <span id="login-spinner" class="hidden material-symbols-rounded animate-spin">progress_activity</span>
-        </button>
+  <span id="login-btn-text">Iniciar Sesión</span>
+  <span id="login-spinner" class="hidden material-symbols-rounded animate-spin">progress_activity</span>
+</button>
       </form>
     </div>
 
@@ -320,9 +320,9 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
         </div>
 
         <button type="submit" id="register-submit" class="btn-primary w-full mt-2 cursor-pointer">
-          <span id="reg-btn-text">Crear cuenta</span>
-          <span id="reg-spinner" class="hidden material-symbols-rounded animate-spin">progress_activity</span>
-        </button>
+  <span id="reg-btn-text">Crear cuenta</span>
+  <span id="reg-spinner" class="hidden material-symbols-rounded animate-spin">progress_activity</span>
+</button>
       </form>
     </div>
 
@@ -397,22 +397,27 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
     spinner.classList.remove('hidden');
 
     try {
-      const res = await fetch('/api/auth/login', {
+      // 1. Apuntamos directo a tu backend en C#
+      const res = await fetch('http://localhost:5145/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ correo: email, password })
+        // 2. Usamos "email" en lugar de "correo" para que C# lo entienda
+        body: JSON.stringify({ email: email, password: password })
       });
+      
       const data = await res.json();
 
-      if (!res.ok) {
-        errorDiv.textContent = data.error || 'Error al iniciar sesión';
-        errorDiv.classList.remove('hidden');
-        btnText.textContent = 'Iniciar Sesión';
-        spinner.classList.add('hidden');
-        return;
-      }
+      if (res.ok && data.success) {
+  // 1. Guardamos el ID para el middleware
+  document.cookie = `id_cliente=${data.data.user_id}; path=/; max-age=604800; SameSite=Lax`;
+  
+  // 2. Guardamos el nombre de la empresa para la interfaz
+  // Usamos el campo 'nombre_empresa' que viene en el perfil desde tu C#
+  const nombre = data.data.perfil.nombre_empresa || 'Empresa';
+  document.cookie = `nombre_empresa=${encodeURIComponent(nombre)}; path=/; max-age=604800; SameSite=Lax`;
 
-      window.location.href = '/dashboard';
+  window.location.href = '/dashboard';
+}
     } catch (err) {
       errorDiv.textContent = 'Error de conexión. Intenta de nuevo.';
       errorDiv.classList.remove('hidden');
@@ -437,10 +442,18 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
     spinner.classList.remove('hidden');
 
     try {
-      const res = await fetch('/api/auth/register', {
+      // Usando conexión directa a tu C# (como hicimos con el mayorista)
+      const res = await fetch('http://localhost:5145/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre_empresa: empresa, correo, telefono, password })
+        body: JSON.stringify({
+          email: correo,              // C# espera la clave "email"
+          password: password,
+          nombre_empresa: empresa,
+          rol: 'cliente',             // <-- ¡La etiqueta mágica para tu Trigger!
+          // Pasamos el teléfono en la metadata por si tu Trigger lo ocupa
+          telefono: telefono 
+        })
       });
       const data = await res.json();
 

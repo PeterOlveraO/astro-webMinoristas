@@ -1,56 +1,80 @@
 ---
 import DashboardLayout from '../layouts/DashboardLayout.astro';
-import { supabase } from '../db/supabase';
 
+// 1. Obtenemos el ID del cliente de las cookies
 const clienteId = Astro.cookies.get('id_cliente')?.value;
 
-// Fetch solicitudes
-const { data: solicitudes } = await supabase
-  .from('solicitudes_cotizacion')
-  .select('*')
-  .eq('id_cliente', clienteId)
-  .order('created_at', { ascending: false });
+// 2. Obtenemos el perfil completo del cliente desde C#
+let perfilCliente: any = null;
+try {
+  const resPerfil = await fetch(`http://localhost:5145/api/clientes/${clienteId}`);
+  if (resPerfil.ok) {
+    const jsonPerfil = await resPerfil.json();
+    if (jsonPerfil.success) {
+      perfilCliente = jsonPerfil.data;
+    }
+  }
+} catch (e) {
+  console.error("Error al obtener perfil:", e);
+}
 
-const allSolicitudes = solicitudes || [];
+// 3. Obtenemos las solicitudes (pedidos-raw) desde C#
+let allSolicitudes: any[] = [];
+try {
+  const resSol = await fetch(`http://localhost:5145/api/pedidos-raw?id_cliente=${clienteId}`);
+  if (resSol.ok) {
+    const jsonSol = await resSol.json();
+    if (jsonSol.success) {
+      // Ordenamos por fecha de creación (más recientes primero)
+      allSolicitudes = jsonSol.data.sort((a: any, b: any) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    }
+  }
+} catch (e) {
+  console.error("Error conectando a C# para solicitudes:", e);
+}
 
-// Count by estado
-const countByEstado = (estado: string) => allSolicitudes.filter(s => s.estado_solicitud === estado).length;
+// Lógica de conteo usando la propiedad "estado" (que es la que usa tu base de datos)
+const countByEstado = (estado: string) => allSolicitudes.filter((s: any) => s.estado === estado).length;
 const pendientes = countByEstado('pendiente');
 const enProceso = countByEstado('en proceso');
 const cotizadas = countByEstado('cotizada');
 const respondidas = countByEstado('respondida');
 const completadas = countByEstado('completada');
 
-// Fetch pedidos/credits for this client
-const { data: pedidos } = await supabase
-  .from('pedidos_creditos')
-  .select(`
-    *,
-    cotizaciones_downlabs!inner (
-      id_solicitud,
-      solicitudes_cotizacion!inner (
-        id_cliente
-      )
-    )
-  `)
-  .eq('cotizaciones_downlabs.solicitudes_cotizacion.id_cliente', clienteId);
+// 4. Obtenemos los pedidos/créditos desde C#
+let allPedidos: any[] = [];
+try {
+  const resPed = await fetch('http://localhost:5145/api/pedidos-credito');
+  if (resPed.ok) {
+    const jsonPed = await resPed.json();
+    if (jsonPed.success) {
+      // Filtramos para asegurar que solo vemos los del cliente actual
+      allPedidos = jsonPed.data.filter((p: any) => p.id_cliente === clienteId);
+    }
+  }
+} catch (e) {
+  console.error("Error conectando a C# para pedidos:", e);
+}
 
-const allPedidos = pedidos || [];
-const pedidosActivos = allPedidos.filter(p => ['en curso', 'aprobado', 'pendiente'].includes(p.estado_credito));
-const montoTotal = allPedidos.reduce((sum, p) => {
+// Cálculos para las tarjetas de métricas
+const pedidosActivos = allPedidos.filter((p: any) => ['en curso', 'aprobado', 'pendiente'].includes(p.estado_credito));
+const montoTotal = allPedidos.reduce((sum: number, p: any) => {
   const monto = Number(p.monto_original) || 0;
   const interes = Number(p.interes) || 0;
   return sum + (monto * (1 + interes / 100));
 }, 0);
 
-// Recent solicitudes (last 5)
+// Variables para las listas del Dashboard
 const recentSolicitudes = allSolicitudes.slice(0, 5);
-
-// Solicitudes that need attention (respondidas = cotización lista)
-const needsAttention = allSolicitudes.filter(s => s.estado_solicitud === 'respondida');
+const needsAttention = allSolicitudes.filter((s: any) => s.estado === 'respondida');
 ---
-
-<DashboardLayout title="Dashboard" activeNav="dashboard">
+<DashboardLayout 
+  title="Dashboard" 
+  activeNav="dashboard" 
+  nombreEmpresa={perfilCliente?.nombre_empresa}
+>
   <!-- ─── Page Header ───────────────────────────────── -->
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 animate-fade-in-up">
     <div>
@@ -122,10 +146,10 @@ const needsAttention = allSolicitudes.filter(s => s.estado_solicitud === 'respon
           </div>
         </div>
         <div class="grid gap-3">
-          {needsAttention.map(sol => (
-            <a href={`/cotizaciones/${sol.id_solicitud}`} class="flex items-center justify-between p-4 rounded-xl bg-surface-3/50 hover:bg-surface-4 border border-outline hover:border-success/30 transition-all group">
+          {needsAttention.map((sol: any) => (
+            <a href={`/cotizaciones/${sol.id_pedido}`} class="flex items-center justify-between p-4 rounded-xl bg-surface-3/50 hover:bg-surface-4 border border-outline hover:border-success/30 transition-all group">
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-semibold text-text-primary truncate">{sol.descripcion_articulo}</p>
+                <p class="text-sm font-semibold text-text-primary truncate">{sol.contenido_raw || 'Sin descripción'}</p>
                 <p class="text-xs text-text-muted mt-1">
                   Creada {new Date(sol.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
                 </p>
@@ -154,34 +178,34 @@ const needsAttention = allSolicitudes.filter(s => s.estado_solicitud === 'respon
         </div>
       ) : (
         <div class="space-y-3">
-          {recentSolicitudes.map(sol => (
-            <a href={`/cotizaciones/${sol.id_solicitud}`} class="flex items-center gap-4 p-4 rounded-xl bg-surface-3/30 hover:bg-surface-3 border border-transparent hover:border-outline transition-all group">
+          {recentSolicitudes.map((sol: any) => (
+            <a href={`/cotizaciones/${sol.id_pedido}`} class="flex items-center gap-4 p-4 rounded-xl bg-surface-3/30 hover:bg-surface-3 border border-transparent hover:border-outline transition-all group">
               <div class={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                sol.estado_solicitud === 'pendiente' ? 'bg-warning/15' :
-                sol.estado_solicitud === 'en proceso' ? 'bg-info/15' :
-                sol.estado_solicitud === 'cotizada' ? 'bg-primary/15' :
-                sol.estado_solicitud === 'respondida' ? 'bg-success/15' :
+                sol.estado === 'pendiente' ? 'bg-warning/15' :
+                sol.estado === 'en proceso' ? 'bg-info/15' :
+                sol.estado === 'cotizada' ? 'bg-primary/15' :
+                sol.estado === 'respondida' ? 'bg-success/15' :
                 'bg-success/20'
               }`}>
                 <span class={`material-symbols-rounded ${
-                  sol.estado_solicitud === 'pendiente' ? 'text-warning' :
-                  sol.estado_solicitud === 'en proceso' ? 'text-info' :
-                  sol.estado_solicitud === 'cotizada' ? 'text-primary' :
-                  sol.estado_solicitud === 'respondida' ? 'text-success' :
+                  sol.estado === 'pendiente' ? 'text-warning' :
+                  sol.estado === 'en proceso' ? 'text-info' :
+                  sol.estado === 'cotizada' ? 'text-primary' :
+                  sol.estado === 'respondida' ? 'text-success' :
                   'text-success'
                 }`}>{
-                  sol.estado_solicitud === 'pendiente' ? 'schedule' :
-                  sol.estado_solicitud === 'en proceso' ? 'sync' :
-                  sol.estado_solicitud === 'cotizada' ? 'description' :
-                  sol.estado_solicitud === 'respondida' ? 'check_circle' :
+                  sol.estado === 'pendiente' ? 'schedule' :
+                  sol.estado === 'en proceso' ? 'sync' :
+                  sol.estado === 'cotizada' ? 'description' :
+                  sol.estado === 'respondida' ? 'check_circle' :
                   'verified'
                 }</span>
               </div>
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-semibold text-text-primary truncate">{sol.descripcion_articulo}</p>
+                <p class="text-sm font-semibold text-text-primary truncate">{sol.contenido_raw || 'Sin descripción'}</p>
                 <div class="flex items-center gap-2 mt-1">
-                  <span class={`badge badge-${sol.estado_solicitud?.replace(' ', '-')}`}>
-                    {sol.estado_solicitud}
+                  <span class={`badge badge-${sol.estado?.replace(' ', '-')}`}>
+                    {sol.estado}
                   </span>
                   <span class="text-xs text-text-muted">
                     {new Date(sol.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
