@@ -2,41 +2,42 @@
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
 
 const clienteId = Astro.cookies.get('id_cliente')?.value;
-const solicitudId = Astro.params.id;
+const pedidoRawId = Astro.params.id;
 const API = import.meta.env.API_URL ?? 'http://localhost:5145';
 
 if (!clienteId) return Astro.redirect('/');
 
-// Fetch solicitud desde C#
-const resSol = await fetch(`${API}/api/solicitudes-cotizacion/${solicitudId}`);
-if (!resSol.ok) return Astro.redirect('/cotizaciones');
-const { data: solicitud } = await resSol.json();
+// Fetch pedido raw desde C#
+const resPedido = await fetch(`${API}/api/pedidos-raw/${pedidoRawId}`);
+if (!resPedido.ok) return Astro.redirect('/cotizaciones');
+const { data: pedidoRaw } = await resPedido.json();
 
 // Verificar que pertenece al cliente
-if (solicitud.id_cliente !== clienteId) return Astro.redirect('/cotizaciones');
+if (pedidoRaw.id_cliente !== clienteId) return Astro.redirect('/cotizaciones');
 
-// Fetch cotizaciones desde C#
-const resCot = await fetch(`${API}/api/cotizaciones?id_solicitud=${solicitudId}`);
-const { data: cotizacionesRaw } = await resCot.json();
+// Intentar obtener cotizaciones_downlabs (si ya fueron generadas)
+let cotizacionesDownlabs: any[] = [];
+let hasCotizacion = false;
+try {
+  const resCot = await fetch(`${API}/api/cotizaciones-downlabs?pedido_raw_id=${pedidoRawId}`);
+  if (resCot.ok) {
+    const json = await resCot.json();
+    if (json.success && json.data) {
+      cotizacionesDownlabs = json.data;
+      hasCotizacion = cotizacionesDownlabs.length > 0;
+    }
+  }
+} catch (e) {
+  console.log('No hay cotizaciones downlabs aún');
+}
 
-const allCotizaciones = cotizacionesRaw || [];
-const aceptadas      = allCotizaciones.filter((c: any) => c.estado === 'aceptada');
-const rechazadas     = allCotizaciones.filter((c: any) => c.estado === 'rechazada');
-const pendientesCot  = allCotizaciones.filter((c: any) => c.estado === 'pendiente' || c.estado === 'enviada');
-
-// Calcular totales
-const subtotal       = aceptadas.reduce((sum: number, c: any) => sum + (Number(c.precio_final_cliente) || 0) * (c.cantidad || 1), 0);
-const envio          = aceptadas.reduce((sum: number, c: any) => sum + (Number(c.costo_envio) || 0), 0);
-const interes        = solicitud.interes_propuesto || 15;
-const plazo          = solicitud.plazo_propuesto_meses || 3;
-const montoConInteres = subtotal * (1 + interes / 100);
-const pagoMensual    = plazo > 0 ? montoConInteres / plazo : montoConInteres;
-
-const specs    = solicitud.especificaciones_req || {};
+// Datos del pedido raw
+const specs = pedidoRaw.especificaciones_tecnicas || {};
 const specKeys = Object.keys(specs);
+const estado = pedidoRaw.estado || 'pendiente';
 
-const isActionable = solicitud.estado_solicitud === 'respondida';
-const isCompleted  = solicitud.estado_solicitud === 'completada';
+// Solo mostrar botones de accion si hay cotizacion_downlabs
+const hasCotizacionAceptada = hasCotizacion && cotizacionesDownlabs.some((c: any) => c.estado === 'aceptada');
 
 const estadoIcons: Record<string, string> = {
   'pendiente':  'schedule',
@@ -45,6 +46,9 @@ const estadoIcons: Record<string, string> = {
   'respondida': 'check_circle',
   'completada': 'verified',
 };
+
+const isActionable = hasCotizacionAceptada && estado === 'respondida';
+const isCompleted  = estado === 'completada';
 ---
 
 <DashboardLayout title="Detalle de Cotización" activeNav="cotizaciones">
@@ -62,34 +66,36 @@ const estadoIcons: Record<string, string> = {
       <div>
         <div class="flex items-center gap-3 mb-3">
           <div class={`w-12 h-12 rounded-xl flex items-center justify-center ${
-            solicitud.estado_solicitud === 'pendiente' ? 'bg-warning/15' :
-            solicitud.estado_solicitud === 'en proceso' ? 'bg-info/15' :
-            solicitud.estado_solicitud === 'cotizada' ? 'bg-primary/15' :
-            solicitud.estado_solicitud === 'respondida' ? 'bg-success/15' :
+            estado === 'pendiente' ? 'bg-warning/15' :
+            estado === 'en proceso' ? 'bg-info/15' :
+            estado === 'cotizada' ? 'bg-primary/15' :
+            estado === 'respondida' ? 'bg-success/15' :
             'bg-success/20'
           }`}>
             <span class={`material-symbols-rounded text-xl ${
-              solicitud.estado_solicitud === 'pendiente' ? 'text-warning' :
-              solicitud.estado_solicitud === 'en proceso' ? 'text-info' :
-              solicitud.estado_solicitud === 'cotizada' ? 'text-primary' :
-              solicitud.estado_solicitud === 'respondida' ? 'text-success' :
+              estado === 'pendiente' ? 'text-warning' :
+              estado === 'en proceso' ? 'text-info' :
+              estado === 'cotizada' ? 'text-primary' :
+              estado === 'respondida' ? 'text-success' :
               'text-success'
-            }`}>{estadoIcons[solicitud.estado_solicitud] || 'description'}</span>
+            }`}>{estadoIcons[estado] || 'description'}</span>
           </div>
           <div>
-            <span class={`badge badge-${solicitud.estado_solicitud?.replace(' ', '-')}`}>
-              {solicitud.estado_solicitud}
+            <span class={`badge badge-${estado.replace(' ', '-')}`}>
+              {estado}
             </span>
-            <span class={`badge badge-${solicitud.nivel_urgencia} ml-1`}>
-              <span class="material-symbols-rounded text-[12px]">flag</span>
-              Urgencia: {solicitud.nivel_urgencia}
-            </span>
+            {pedidoRaw.urgencia && (
+              <span class={`badge badge-${pedidoRaw.urgencia} ml-1`}>
+                <span class="material-symbols-rounded text-[12px]">flag</span>
+                Urgencia: {pedidoRaw.urgencia}
+              </span>
+            )}
           </div>
         </div>
 
-        <h1 class="text-xl sm:text-2xl font-black text-text-primary mb-2">{solicitud.descripcion_articulo}</h1>
+        <h1 class="text-xl sm:text-2xl font-black text-text-primary mb-2">{pedidoRaw.contenido_raw || 'Sin descripción'}</h1>
         <p class="text-sm text-text-muted">
-          Creada el {new Date(solicitud.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
+          Creada el {new Date(pedidoRaw.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
       </div>
     </div>
@@ -112,19 +118,19 @@ const estadoIcons: Record<string, string> = {
   <div class="glass-card p-6 mb-6 animate-fade-in-up stagger-2">
     <h2 class="text-sm font-semibold text-text-secondary mb-4">Progreso de la solicitud</h2>
     <div class="flex items-center gap-1 overflow-x-auto pb-2">
-      {['pendiente', 'en proceso', 'cotizada', 'respondida', 'completada'].map((estado, i) => {
-        const currentIndex = ['pendiente', 'en proceso', 'cotizada', 'respondida', 'completada'].indexOf(solicitud.estado_solicitud);
+      {['pendiente', 'en proceso', 'cotizada', 'respondida', 'completada'].map((est, i) => {
+        const currentIndex = ['pendiente', 'en proceso', 'cotizada', 'respondida', 'completada'].indexOf(estado);
         const isActive = i <= currentIndex;
-        const isCurrent = estado === solicitud.estado_solicitud;
+        const isCurrent = est === estado;
 
         return (
           <>
             <div class={`flex items-center gap-2 px-3 py-2 rounded-lg whitespace-nowrap ${isCurrent ? 'bg-primary/10 border border-primary/30' : isActive ? 'bg-success/5' : ''}`}>
               <span class={`material-symbols-rounded text-[18px] ${isCurrent ? 'text-primary' : isActive ? 'text-success' : 'text-text-muted'}`}>
-                {isActive && !isCurrent ? 'check_circle' : estadoIcons[estado]}
+                {isActive && !isCurrent ? 'check_circle' : estadoIcons[est]}
               </span>
               <span class={`text-xs font-semibold ${isCurrent ? 'text-primary' : isActive ? 'text-success' : 'text-text-muted'}`}>
-                {estado}
+                {est}
               </span>
             </div>
             {i < 4 && (
@@ -136,16 +142,16 @@ const estadoIcons: Record<string, string> = {
     </div>
   </div>
 
-  {/* ─── Products cotizados ────────────────────────── */}
-  {allCotizaciones.length > 0 && (
+  {/* ─── Products cotizados (solo si hay cotizacion_downlabs) ────────────────────────── */}
+  {hasCotizacion && (
     <div class="animate-fade-in-up stagger-3">
       <h2 class="text-lg font-bold text-text-primary mb-4 flex items-center gap-2">
         <span class="material-symbols-rounded text-primary">shopping_cart</span>
-        Productos Cotizados ({allCotizaciones.length})
+        Productos Cotizados ({cotizacionesDownlabs.length})
       </h2>
 
       <div class="space-y-4 mb-6">
-        {allCotizaciones.map((cot: any) => {
+        {cotizacionesDownlabs.map((cot: any) => {
           const producto = cot.catalogo_productos;
           const total = (Number(cot.precio_final_cliente) || 0) * (cot.cantidad || 1);
           const isAccepted = cot.estado === 'aceptada';
@@ -175,8 +181,8 @@ const estadoIcons: Record<string, string> = {
                     )}
                   </div>
                   <div>
-                    {isAccepted && <span class="badge badge-respondida">Aceptado por proveedor</span>}
-                    {isRejected && <span class="badge badge-rechazada">Rechazado por proveedor</span>}
+                    {isAccepted && <span class="badge badge-respondida">Aceptado</span>}
+                    {isRejected && <span class="badge badge-rechazada">Rechazado</span>}
                     {!isAccepted && !isRejected && <span class="badge badge-pendiente">Pendiente</span>}
                   </div>
                 </div>
@@ -214,8 +220,8 @@ const estadoIcons: Record<string, string> = {
         })}
       </div>
 
-      {/* ─── Totals + Accept/Reject ──────────────────── */}
-      {(isActionable || isCompleted) && aceptadas.length > 0 && (
+      {/* ─── Totals + Accept/Reject (solo si hay cotizaciones aceptadas y estado es respondida o completada) ──────────────────── */}
+      {(isActionable || isCompleted) && hasCotizacionAceptada && (
         <div class="glass-card p-6 sm:p-8 animate-fade-in-up stagger-4">
           <h2 class="text-lg font-bold text-text-primary mb-5 flex items-center gap-2">
             <span class="material-symbols-rounded text-primary">receipt_long</span>
@@ -224,44 +230,19 @@ const estadoIcons: Record<string, string> = {
 
           <div class="space-y-3 mb-6">
             <div class="flex justify-between text-sm">
-              <span class="text-text-secondary">Subtotal ({aceptadas.length} productos)</span>
-              <span class="text-text-primary font-semibold">${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+              <span class="text-text-secondary">Subtotal ({cotizacionesDownlabs.filter((c: any) => c.estado === 'aceptada').length} productos)</span>
+              <span class="text-text-primary font-semibold">${cotizacionesDownlabs.filter((c: any) => c.estado === 'aceptada').reduce((sum: number, c: any) => sum + (Number(c.precio_final_cliente) || 0) * (c.cantidad || 1), 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
             </div>
-            {envio > 0 && (
+            {cotizacionesDownlabs.filter((c: any) => c.estado === 'aceptada').reduce((sum: number, c: any) => sum + (Number(c.costo_envio) || 0), 0) > 0 && (
               <div class="flex justify-between text-sm">
                 <span class="text-text-secondary">Envío</span>
-                <span class="text-text-primary font-semibold">+${envio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                <span class="text-text-primary font-semibold">+${cotizacionesDownlabs.filter((c: any) => c.estado === 'aceptada').reduce((sum: number, c: any) => sum + (Number(c.costo_envio) || 0), 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
-            <div class="flex justify-between text-sm">
-              <span class="text-text-secondary">Interés ({interes}%)</span>
-              <span class="text-warning font-semibold">+${(subtotal * interes / 100).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
-            </div>
             <div class="border-t border-outline my-2"></div>
             <div class="flex justify-between">
-              <span class="text-text-primary font-bold">Total con interés</span>
-              <span class="text-xl font-black text-primary">${(montoConInteres + envio).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
-            </div>
-          </div>
-
-          <div class="glass-card p-5 mb-6" style="border-color: rgba(129,140,248,0.3);">
-            <div class="flex items-center gap-3 mb-3">
-              <span class="material-symbols-rounded text-primary">credit_card</span>
-              <h3 class="text-base font-bold text-text-primary">Plan de Pago a Crédito</h3>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <div>
-                <p class="text-xs text-text-muted">Plazo</p>
-                <p class="text-lg font-black text-text-primary">{plazo} meses</p>
-              </div>
-              <div>
-                <p class="text-xs text-text-muted">Pago mensual</p>
-                <p class="text-lg font-black text-success">${pagoMensual.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
-              </div>
-              <div>
-                <p class="text-xs text-text-muted">Tasa de interés</p>
-                <p class="text-lg font-black text-warning">{interes}%</p>
-              </div>
+              <span class="text-text-primary font-bold">Total</span>
+              <span class="text-xl font-black text-primary">${cotizacionesDownlabs.filter((c: any) => c.estado === 'aceptada').reduce((sum: number, c: any) => sum + ((Number(c.precio_final_cliente) || 0) * (c.cantidad || 1)) + (Number(c.costo_envio) || 0), 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
             </div>
           </div>
 
@@ -297,50 +278,54 @@ const estadoIcons: Record<string, string> = {
     </div>
   )}
 
-  {/* ─── Waiting state ──────────────────────────────── */}
-  {allCotizaciones.length === 0 && (
+  {/* ─── Waiting state (solo si NO hay cotizacion_downlabs) ──────────────────────────────── */}
+  {!hasCotizacion && (
     <div class="glass-card p-12 text-center animate-fade-in-up stagger-3">
       <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
         <span class="material-symbols-rounded text-primary text-4xl">hourglass_top</span>
       </div>
-      <h2 class="text-xl font-bold text-text-primary mb-2">Esperando cotización</h2>
+      <h2 class="text-xl font-bold text-text-primary mb-2">En proceso de cotización</h2>
       <p class="text-text-secondary mb-2">Nuestro equipo está buscando las mejores opciones para tu solicitud.</p>
       <p class="text-sm text-text-muted">Te notificaremos cuando la cotización esté lista.</p>
     </div>
   )}
 
-  <!-- ─── Confirm modals ───────────────────────────── -->
-  <div id="confirm-accept" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-    <div class="glass-card p-8 max-w-md w-full text-center animate-fade-in-up">
-      <div class="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center mx-auto mb-4">
-        <span class="material-symbols-rounded text-success text-3xl">check_circle</span>
-      </div>
-      <h2 class="text-xl font-bold text-text-primary mb-2">¿Aceptar cotización?</h2>
-      <p class="text-sm text-text-secondary mb-6">
-        Se crearán los pedidos a crédito por un total de <strong class="text-primary">${(montoConInteres + envio).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong> en <strong>{plazo} mensualidades</strong> de <strong class="text-success">${pagoMensual.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong>.
-      </p>
-      <div class="flex gap-3 justify-center">
-        <button id="cancel-accept" class="btn-secondary cursor-pointer">Cancelar</button>
-        <button id="confirm-accept-btn" class="btn-primary cursor-pointer">Sí, aceptar</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="confirm-reject" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-    <div class="glass-card p-8 max-w-md w-full text-center animate-fade-in-up">
-      <div class="w-16 h-16 rounded-full bg-danger/20 flex items-center justify-center mx-auto mb-4">
-        <span class="material-symbols-rounded text-danger text-3xl">cancel</span>
-      </div>
-      <h2 class="text-xl font-bold text-text-primary mb-2">¿Rechazar cotización?</h2>
-      <p class="text-sm text-text-secondary mb-6">La solicitud volverá a estado pendiente para que nuestro equipo pueda enviar una nueva cotización.</p>
-      <div class="flex gap-3 justify-center">
-        <button id="cancel-reject" class="btn-secondary cursor-pointer">Cancelar</button>
-        <button id="confirm-reject-btn" class="btn-danger cursor-pointer">Sí, rechazar</button>
+  <!-- ─── Confirm modals (solo si hay cotizacion) ───────────────────────────── -->
+  {hasCotizacion && hasCotizacionAceptada && (
+    <div id="confirm-accept" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div class="glass-card p-8 max-w-md w-full text-center animate-fade-in-up">
+        <div class="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center mx-auto mb-4">
+          <span class="material-symbols-rounded text-success text-3xl">check_circle</span>
+        </div>
+        <h2 class="text-xl font-bold text-text-primary mb-2">¿Aceptar cotización?</h2>
+        <p class="text-sm text-text-secondary mb-6">
+          Se crearán los pedidos a crédito con los productos aceptados.
+        </p>
+        <div class="flex gap-3 justify-center">
+          <button id="cancel-accept" class="btn-secondary cursor-pointer">Cancelar</button>
+          <button id="confirm-accept-btn" class="btn-primary cursor-pointer">Sí, aceptar</button>
+        </div>
       </div>
     </div>
-  </div>
+  )}
 
-<script define:vars={{ solicitudId }}>
+  {hasCotizacion && hasCotizacionAceptada && (
+    <div id="confirm-reject" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div class="glass-card p-8 max-w-md w-full text-center animate-fade-in-up">
+        <div class="w-16 h-16 rounded-full bg-danger/20 flex items-center justify-center mx-auto mb-4">
+          <span class="material-symbols-rounded text-danger text-3xl">cancel</span>
+        </div>
+        <h2 class="text-xl font-bold text-text-primary mb-2">¿Rechazar cotización?</h2>
+        <p class="text-sm text-text-secondary mb-6">La solicitud volverá a estado pendiente para que nuestro equipo pueda enviar una nueva cotización.</p>
+        <div class="flex gap-3 justify-center">
+          <button id="cancel-reject" class="btn-secondary cursor-pointer">Cancelar</button>
+          <button id="confirm-reject-btn" class="btn-danger cursor-pointer">Sí, rechazar</button>
+        </div>
+      </div>
+    </div>
+  )}
+
+<script define:vars={{ pedidoRawId }}>
   const $ = (id) => document.getElementById(id);
 
   // Accept flow
@@ -358,7 +343,7 @@ const estadoIcons: Record<string, string> = {
     $('btn-rechazar').disabled = true;
 
     try {
-      const res = await fetch(`/api/cotizaciones/${solicitudId}/aceptar`, { method: 'POST' });
+      const res = await fetch(`/api/cotizaciones/${pedidoRawId}/aceptar`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         window.location.reload();
@@ -393,7 +378,7 @@ const estadoIcons: Record<string, string> = {
     $('btn-aceptar').disabled = true;
 
     try {
-      const res = await fetch(`/api/cotizaciones/${solicitudId}/rechazar`, { method: 'POST' });
+      const res = await fetch(`/api/cotizaciones/${pedidoRawId}/rechazar`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         window.location.href = '/cotizaciones';
