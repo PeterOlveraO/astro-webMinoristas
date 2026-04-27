@@ -249,8 +249,10 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
 
         <button type="submit" id="login-submit" class="btn-primary w-full mt-2 cursor-pointer">
   <span id="login-btn-text">Iniciar Sesión</span>
-  <span id="login-spinner" class="hidden material-symbols-rounded animate-spin">progress_activity</span>
-</button>
+<!-- ✅ El spinner empieza oculto con style, no con clase -->
+<span id="login-spinner" 
+  class="material-symbols-rounded animate-spin" 
+  style="display:none">progress_activity</span></button>
       </form>
     </div>
 
@@ -321,8 +323,9 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
 
         <button type="submit" id="register-submit" class="btn-primary w-full mt-2 cursor-pointer">
   <span id="reg-btn-text">Crear cuenta</span>
-  <span id="reg-spinner" class="hidden material-symbols-rounded animate-spin">progress_activity</span>
-</button>
+<span id="reg-spinner" 
+  class="material-symbols-rounded animate-spin" 
+  style="display:none">progress_activity</span></button>
       </form>
     </div>
 
@@ -392,9 +395,9 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
     const btnText = $('login-btn-text')!;
     const spinner = $('login-spinner')!;
 
-    errorDiv.classList.add('hidden');
+spinner.style.display = 'inline-block';
     btnText.textContent = 'Ingresando...';
-    spinner.classList.remove('hidden');
+spinner.style.display = 'none';
 
     try {
       // 1. Apuntamos directo a tu backend en C#

@@ -1,62 +1,47 @@
 ---
 import DashboardLayout from '../../layouts/DashboardLayout.astro';
-import { supabase } from '../../db/supabase';
 
 const clienteId = Astro.cookies.get('id_cliente')?.value;
 const solicitudId = Astro.params.id;
+const API = import.meta.env.API_URL ?? 'http://localhost:5145';
 
-// Fetch solicitud
-const { data: solicitud } = await supabase
-  .from('solicitudes_cotizacion')
-  .select('*')
-  .eq('id_solicitud', solicitudId)
-  .eq('id_cliente', clienteId)
-  .single();
+if (!clienteId) return Astro.redirect('/');
 
-if (!solicitud) {
-  return Astro.redirect('/cotizaciones');
-}
+// Fetch solicitud desde C#
+const resSol = await fetch(`${API}/api/solicitudes-cotizacion/${solicitudId}`);
+if (!resSol.ok) return Astro.redirect('/cotizaciones');
+const { data: solicitud } = await resSol.json();
 
-// Fetch cotizaciones with product details
-const { data: cotizaciones } = await supabase
-  .from('cotizaciones_downlabs')
-  .select(`
-    *,
-    catalogo_productos (
-      id_producto,
-      nombre_articulo,
-      categoria,
-      descripcion,
-      imagen_url,
-      materiales
-    )
-  `)
-  .eq('id_solicitud', solicitudId)
-  .order('created_at', { ascending: true });
+// Verificar que pertenece al cliente
+if (solicitud.id_cliente !== clienteId) return Astro.redirect('/cotizaciones');
 
-const allCotizaciones = cotizaciones || [];
-const aceptadas = allCotizaciones.filter(c => c.estado === 'aceptada');
-const rechazadas = allCotizaciones.filter(c => c.estado === 'rechazada');
-const pendientesCot = allCotizaciones.filter(c => c.estado === 'pendiente' || c.estado === 'enviada');
+// Fetch cotizaciones desde C#
+const resCot = await fetch(`${API}/api/cotizaciones?id_solicitud=${solicitudId}`);
+const { data: cotizacionesRaw } = await resCot.json();
 
-// Calculate totals
-const subtotal = aceptadas.reduce((sum, c) => sum + (Number(c.precio_final_cliente) || 0) * (c.cantidad || 1), 0);
-const envio = aceptadas.reduce((sum, c) => sum + (Number(c.costo_envio) || 0), 0);
-const interes = solicitud.interes_propuesto || 15;
-const plazo = solicitud.plazo_propuesto_meses || 3;
+const allCotizaciones = cotizacionesRaw || [];
+const aceptadas      = allCotizaciones.filter((c: any) => c.estado === 'aceptada');
+const rechazadas     = allCotizaciones.filter((c: any) => c.estado === 'rechazada');
+const pendientesCot  = allCotizaciones.filter((c: any) => c.estado === 'pendiente' || c.estado === 'enviada');
+
+// Calcular totales
+const subtotal       = aceptadas.reduce((sum: number, c: any) => sum + (Number(c.precio_final_cliente) || 0) * (c.cantidad || 1), 0);
+const envio          = aceptadas.reduce((sum: number, c: any) => sum + (Number(c.costo_envio) || 0), 0);
+const interes        = solicitud.interes_propuesto || 15;
+const plazo          = solicitud.plazo_propuesto_meses || 3;
 const montoConInteres = subtotal * (1 + interes / 100);
-const pagoMensual = plazo > 0 ? montoConInteres / plazo : montoConInteres;
+const pagoMensual    = plazo > 0 ? montoConInteres / plazo : montoConInteres;
 
-const specs = solicitud.especificaciones_req || {};
+const specs    = solicitud.especificaciones_req || {};
 const specKeys = Object.keys(specs);
 
 const isActionable = solicitud.estado_solicitud === 'respondida';
-const isCompleted = solicitud.estado_solicitud === 'completada';
+const isCompleted  = solicitud.estado_solicitud === 'completada';
 
 const estadoIcons: Record<string, string> = {
-  'pendiente': 'schedule',
+  'pendiente':  'schedule',
   'en proceso': 'sync',
-  'cotizada': 'description',
+  'cotizada':   'description',
   'respondida': 'check_circle',
   'completada': 'verified',
 };
@@ -160,7 +145,7 @@ const estadoIcons: Record<string, string> = {
       </h2>
 
       <div class="space-y-4 mb-6">
-        {allCotizaciones.map(cot => {
+        {allCotizaciones.map((cot: any) => {
           const producto = cot.catalogo_productos;
           const total = (Number(cot.precio_final_cliente) || 0) * (cot.cantidad || 1);
           const isAccepted = cot.estado === 'aceptada';
