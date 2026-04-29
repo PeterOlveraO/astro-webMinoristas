@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
-// Importamos nuestro puente hacia C#
-import { ApiService } from '../../../services/api';
+
+const API_URL = import.meta.env.API_URL ?? 'http://localhost:5145';
+const headers = { 'Content-Type': 'application/json' };
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   try {
@@ -9,56 +10,52 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
     if (!correo || !password) {
       return new Response(JSON.stringify({ error: 'Correo y contraseña son requeridos' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        status: 400, headers
       });
-    }
+    } // ✅ llave de cierre
 
-    // 1. Pedimos los clientes a nuestro backend en C#
-    const clientes = await ApiService.getClientes();
-    
-    // 2. Buscamos si existe el correo
-    const cliente = clientes.find((c: any) => c.correo_contacto === correo);
-
-    if (!cliente) {
-      return new Response(JSON.stringify({ error: 'Credenciales inválidas. Verifica tu correo.' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Set session cookies
-    cookies.set('id_cliente', cliente.id_cliente, {
-      path: '/',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      sameSite: 'lax'
-    });
-    cookies.set('nombre_empresa', cliente.nombre_empresa, {
-      path: '/',
-      httpOnly: false,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'lax'
+    const res = await fetch(`${API_URL}/api/auth/login`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ email: correo, password })
     });
 
-    return new Response(JSON.stringify({
-      success: true,
-      cliente: {
-        id_cliente: cliente.id_cliente,
-        nombre_empresa: cliente.nombre_empresa,
-        correo_contacto: cliente.correo_contacto
-      }
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
+    const data = await res.json();
+// ✅ TEMPORAL — agrega estas líneas para ver qué llega
+console.log('[LOGIN MINORISTA] res.ok:', res.ok);
+console.log('[LOGIN MINORISTA] data completo:', JSON.stringify(data, null, 2));
+
+    if (!res.ok) {
+      return new Response(JSON.stringify({ error: data.message ?? 'Credenciales inválidas' }), {
+        status: res.status, headers
+      });
+    } // ✅ llave de cierre
+
+    const { user_id, perfil } = data.data;
+
+    if (!user_id) {
+      return new Response(JSON.stringify({ error: 'No se pudo obtener el ID del cliente' }), {
+        status: 500, headers
+      });
+    } // ✅ llave de cierre
+
+    const cookieOptions = {
+      path: '/', httpOnly: true, secure: false,
+      maxAge: 60 * 60 * 24 * 7, sameSite: 'lax' as const
+    };
+
+    cookies.set('id_cliente', user_id, cookieOptions);
+    cookies.set('nombre_empresa', perfil?.nombre_empresa ?? '', {
+      ...cookieOptions, httpOnly: false
+    });
+
+    return new Response(JSON.stringify({ success: true, data: { perfil } }), {
+      status: 200, headers
     });
 
   } catch (err) {
     return new Response(JSON.stringify({ error: 'Error del servidor' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      status: 500, headers
     });
   }
 };

@@ -395,33 +395,37 @@ const loginRequired = Astro.url.searchParams.get('login') === 'required';
     const btnText = $('login-btn-text')!;
     const spinner = $('login-spinner')!;
 
-spinner.style.display = 'inline-block';
+    spinner.style.display = 'inline-block';
     btnText.textContent = 'Ingresando...';
-spinner.style.display = 'none';
+
 
     try {
       // 1. Apuntamos directo a tu backend en C#
-      const res = await fetch('http://localhost:5145/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // 2. Usamos "email" en lugar de "correo" para que C# lo entienda
-        body: JSON.stringify({ email: email, password: password })
-      });
+      const res = await fetch('/api/auth/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ correo: email, password })
+});
       
       const data = await res.json();
 
-      if (res.ok && data.success) {
-  // 1. Guardamos el ID para el middleware
-  document.cookie = `id_cliente=${data.data.user_id}; path=/; max-age=604800; SameSite=Lax`;
-  
-  // 2. Guardamos el nombre de la empresa para la interfaz
-  // Usamos el campo 'nombre_empresa' que viene en el perfil desde tu C#
-  const nombre = data.data.perfil.nombre_empresa || 'Empresa';
-  document.cookie = `nombre_empresa=${encodeURIComponent(nombre)}; path=/; max-age=604800; SameSite=Lax`;
+      if (res.ok) {
+      // ✅ El login.ts ya setea id_cliente como cookie httpOnly del servidor
+      // Solo necesitas setear nombre_empresa si quieres mostrarlo en la UI
+      if (data.data?.perfil?.nombre_empresa) {
+        document.cookie = `nombre_empresa=${encodeURIComponent(data.data.perfil.nombre_empresa)}; path=/; max-age=604800; SameSite=Lax`;
+      }
+      // ✅ Un solo redirect al final
+      window.location.href = '/dashboard';
+    } else {
+      // ✅ Mostrar el error del servidor
+      errorDiv.textContent = data.error || 'Credenciales inválidas.';
+      errorDiv.classList.remove('hidden');
+      btnText.textContent = 'Iniciar Sesión';
+      spinner.style.display = 'none';
+    }
 
-  window.location.href = '/dashboard';
-}
-    } catch (err) {
+  }catch (err) {
       errorDiv.textContent = 'Error de conexión. Intenta de nuevo.';
       errorDiv.classList.remove('hidden');
       btnText.textContent = 'Iniciar Sesión';
